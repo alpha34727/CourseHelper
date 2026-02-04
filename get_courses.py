@@ -37,6 +37,7 @@ def save_json_as_wb(data, filename, sheetname, main_grade=""):
 
     # 所有已經有的課程
     existed_courses = [sheet.cell(x, label_to_index["cos_id"]).value for x in range(3, sheet.max_row+1)]
+    existed_courses_code = [sheet.cell(x, label_to_index["cos_code"]).value for x in range(3, sheet.max_row+1)]
 
     # 取得dep_id，e.g. "E2D47D2E-B529-4449-8619-8561D3401D32"
     dynamic_keys = list(data)
@@ -46,7 +47,7 @@ def save_json_as_wb(data, filename, sheetname, main_grade=""):
         course_dicts = [v for k, v in json_content.items() if k.isdigit()]
         for courses in course_dicts:
             for course in tqdm.tqdm(courses.values(), "儲存工作表", leave=False):
-                if course.get('cos_id') not in existed_courses: # 避免重複的課程填入
+                if not ((course.get('cos_id') in existed_courses) and (course.get('cos_code') in existed_courses_code)): # 避免重複的課程填入
                     course_info = []
                     for label in label_to_index:
                         if label in FUNCTIONAL_LABLE:
@@ -154,3 +155,6 @@ fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學
 
 # fetch_from_timetable([[("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班共同課程"), ("fCategory", "校共同課程"), ("fDep", "核心課程")]],
 #                      "courses.xlsx", "1142_General")
+
+# fetch_from_timetable([[("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(醫學生物技術暨檢驗學系)"), ("fGrade", "全部")],],
+#                      "courses.xlsx", "MT")
