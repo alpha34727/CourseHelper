@@ -9,10 +9,10 @@ from selenium.webdriver.support.ui import Select
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-def save_json_as_wb(data, filename, sheetname):
-    LABEL = [["修過", "學年度", "學期", "當期課號", "永久課號", "先修課程", "課程名稱", "學分", "時數", "老師", "課程時間/地點", "課程類別", "備註"],
-            ["elected", "acy", "sem", "cos_id", "cos_code", "pre_req", "cos_cname", "cos_credit", "cos_hours", "teacher", "cos_time", "cos_type", "memo"],]
-    FUNCTIONAL_LABLE = ["elected", "pre_req"]
+def save_json_as_wb(data, filename, sheetname, main_grade=""):
+    LABEL = [["修過", "學年度", "學期", "主開年級", "當期課號", "永久課號", "先修課程", "課程名稱", "學分", "時數", "老師", "課程時間/地點", "課程類別", "備註"],
+            ["elected", "acy", "sem", "main_grade", "cos_id", "cos_code", "pre_req", "cos_cname", "cos_credit", "cos_hours", "teacher", "cos_time", "cos_type", "memo"],]
+    FUNCTIONAL_LABLE = ["elected", "pre_req", "main_grade"]
 
     # 開啟工作表
     if not os.path.exists(filename):
@@ -35,6 +35,9 @@ def save_json_as_wb(data, filename, sheetname):
     for i in range(1, sheet.max_column+1):
         label_to_index[sheet.cell(2, i).value] = i
 
+    # 所有已經有的課程
+    existed_courses = [sheet.cell(x, label_to_index["cos_id"]).value for x in range(3, sheet.max_row+1)]
+
     # 取得dep_id，e.g. "E2D47D2E-B529-4449-8619-8561D3401D32"
     dynamic_keys = list(data)
     for dynamic_key in tqdm.tqdm(dynamic_keys, "開課單位"):
@@ -43,14 +46,19 @@ def save_json_as_wb(data, filename, sheetname):
         course_dicts = [v for k, v in json_content.items() if k.isdigit()]
         for courses in course_dicts:
             for course in tqdm.tqdm(courses.values(), "儲存工作表", leave=False):
-                course_info = []
-                for label in label_to_index:
-                    if label in FUNCTIONAL_LABLE:
-                        course_info.append("")
-                    else:
-                        course_info.append(course.get(label))
-                sheet.append(course_info)
-    
+                if course.get('cos_id') not in existed_courses: # 避免重複的課程填入
+                    course_info = []
+                    for label in label_to_index:
+                        if label in FUNCTIONAL_LABLE:
+                            if label == "main_grade":
+                                course_info.append(main_grade)
+                            else:
+                                course_info.append("")
+                        else:
+                            course_info.append(course.get(label))
+                    sheet.append(course_info)
+                    existed_courses.append(course.get('cos_id'))
+        
     workbook.save(filename)
 
 def fetch_from_timetable(reqs, filename, sheetname):
@@ -87,12 +95,15 @@ def fetch_from_timetable(reqs, filename, sheetname):
     for req in reqs:
         try:
             print("執行要求:", req)
-
+            
+            main_year = ""
             for selection_id, selection_text in req:
                 Select(driver.find_element(By.ID, selection_id)).select_by_visible_text(selection_text)
+                if selection_id == 'fGrade':
+                    main_year = selection_text
                 wait.until(lambda d: d.execute_script("return jQuery.active == 0"))
 
-
+            driver.execute_script("window.captured_response = null;")
             driver.find_element(By.ID, "crstime_search").click()
 
             # =================================================================
@@ -105,8 +116,8 @@ def fetch_from_timetable(reqs, filename, sheetname):
             
             if raw_json:        
                 # 1. 解析 JSON 字串為 Python 字典
-                data = json.loads(raw_json)                   
-                save_json_as_wb(data, filename, sheetname)
+                data = json.loads(raw_json)
+                save_json_as_wb(data, filename, sheetname, main_year)
             else:
                 print("未抓取到資料")
 
@@ -121,20 +132,25 @@ def fetch_from_timetable(reqs, filename, sheetname):
     
     driver.quit()
 
-fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "BME(生物醫學工程學系)")],
-                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "BME(生物醫學工程學系)")]],
-                     "courses.xlsx", "BME")
-
-fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生命科學院"), ("fDep", "(生命科學系暨基因體科學研究所)")],
-                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生命科學院"), ("fDep", "(生命科學系暨基因體科學研究所)")]],
-                     "courses.xlsx", "LS")
-
-fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(醫學生物技術暨檢驗學系)")],
-                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(醫學生物技術暨檢驗學系)")]],
+fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(醫學生物技術暨檢驗學系)"), ("fGrade", "全部")],
+                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(醫學生物技術暨檢驗學系)"), ("fGrade", "全部")],],
                      "courses.xlsx", "MT")
 
-fetch_from_timetable([[("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班共同課程"), ("fCategory", "校共同課程"), ("fDep", "核心課程")]],
-                     "courses.xlsx", "1142_General")
+fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "BME(生物醫學工程學系)"), ("fGrade", "全部")],
+                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "BME(生物醫學工程學系)"), ("fGrade", "全部")],],
+                     "courses.xlsx", "BME")
 
-# dat = json.load(open("course_data.json", 'r', encoding='utf-8'))
-# save_json_as_wb(dat, "aaaaaa.xlsx", "你好1")
+fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(數位醫療學士學位學程)"), ("fGrade", "全部")],
+                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生物醫學暨工程學院"), ("fDep", "(數位醫療學士學位學程)"), ("fGrade", "全部")],],
+                     "courses.xlsx", "DHCR")
+
+fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生命科學院"), ("fDep", "(生命科學系暨基因體科學研究所)"), ("fGrade", "全部")],
+                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "生命科學院"), ("fDep", "(生命科學系暨基因體科學研究所)"), ("fGrade", "全部")],],
+                     "courses.xlsx", "LS")
+
+fetch_from_timetable([[("fAcySem", "114 學年度 第 1 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "校級"), ("fDep", "(學士班大一大二不分系)"), ("fGrade", "全部")],
+                      [("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班課程"), ("fCategory", "一般學士班"), ("fCollege", "校級"), ("fDep", "(學士班大一大二不分系)"), ("fGrade", "全部")],],
+                     "courses.xlsx", "IPU")
+
+# fetch_from_timetable([[("fAcySem", "114 學年度 第 2 學期"), ("fType", "學士班共同課程"), ("fCategory", "校共同課程"), ("fDep", "核心課程")]],
+#                      "courses.xlsx", "1142_General")
